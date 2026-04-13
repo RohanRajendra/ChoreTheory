@@ -73,15 +73,30 @@ Shared spaces are often a spot for lots of conflict and disagreements over who h
 - User signs up or logs in.
 - Upon login, the **HouseListView** displays all houses associated with the user.
 - User may:
+
     - Create a new house (becoming its admin), or
     - Select an existing house to view its resources.
+
 - Within a house, the user can:
+
     - View resources
-    - Add new resources (if admin)
+    - Add new resources (if admin). When adding a resource, the user may optionally classify it as a Space (providing a cleaning requirement and max occupancy) or an Appliance (providing a maintenance requirement).
     - Add new members by entering their username (admin only)
+    - View and manage Expenses for the house
+
 - Selecting a resource opens the **Resource Booking** screen.
 - User creates a booking for the selected resource.
-- User may also view all their bookings in the **Bookings** screen.
+
+- After creating a booking, the user may add one or more Reminders for that booking by specifying a reminder time and message.
+
+- User may view all their bookings in the **Bookings** screen. From here the user can also view, add, or delete reminders on any of their bookings.
+- User may navigate to the Expenses screen to:
+
+    - View all expenses they are associated with
+    - Create a new expense, specifying the amount, description, due date, whether it is recurring, and optionally attaching a receipt
+    - Split an expense among one or more housemates, recording each person's share
+    - Mark their share of an expense as paid
+
 - The **Profile** screen displays user information and includes a logout option.
 
 ---
