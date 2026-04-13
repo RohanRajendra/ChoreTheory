@@ -137,3 +137,19 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# DS store
+.DS_Store
+
+# py gitignore
+__pycache__/
+.venv/
+venv/
+env/
+ENV/
+.env/
+
+#node base gitignore
+node_modules/
+dist/
+build/

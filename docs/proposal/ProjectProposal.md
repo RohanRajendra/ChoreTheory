@@ -1,17 +1,25 @@
-# ChoreTheory
-Application developed for the project submission of CS5200 DBMS. 
-
-The application would allow housemates to schedule and reserve resources (like the kitchen or the washer/dryer) that can be used in a shared home such as student accommodation.
+CS 5200 : DBMS
 
 ---
 
-### Data Domain Motivation
+### Project Group Information
 
-Shared spaces are often a spot for lots of conflict and disagreements over who has a claim over a particular space or resource at a given moment. These problems are often made worse when all the members of the shared space have similar schedules. Having a system that organises the scheduling of these resources can help minimise conflict. This data domain is from lived experiences. Having verbal agreements over resource scheduling is not maintainable or scalable. A well defined system would help harmonise living spaces. 
+Group name : SonawaneARajendraR
+
+Group members
+
+- Atharva Sonawane
+- Rohan Rajendra
 
 ---
 
-### Data Model Overview
+### Description
+
+The application would allow housemates to schedule and reserve resources (like the kitchen or the washer/dryer) that can be used in a shared home such as student accommodation. 
+
+---
+
+### Description of the Data Model
 
 A group of housemates living in shared accommodation want a system that allows them to schedule and reserve shared household resources such as kitchens, bathrooms, laundry machines, appliances, the TV, and more. These resources are often in high demand during certain times, and the housemates need a fair and organised way to manage access to the resources. The application stores information about the people using the system, the houses they belong to, the resources available in each house, and the bookings made for those resources.
 
@@ -39,3 +47,38 @@ The project will use MySQL, a relational SQL database.
 - Interface: Web application
 - FrontEnd ReactJs
 
+---
+
+### Data Domain Motivation
+
+Shared spaces are often a spot for lots of conflict and disagreements over who has a claim over a particular space or resource at a given moment. These problems are often made worse when all the members of the shared space have similar schedules. Having a system that organises the scheduling of these resources can help minimise conflict. This data domain is from lived experiences. Having verbal agreements over resource scheduling is not maintainable or scalable. A well defined system would help harmonise living spaces. 
+
+---
+
+### Conceptual Design
+
+![image.png](proposal_conceptual_design.png)
+
+---
+
+### User Interaction Flow
+
+- User signs up or logs in.
+- Upon login, the **HouseListView** displays all houses associated with the user.
+- User may:
+    - Create a new house (becoming its admin), or
+    - Select an existing house to view its resources.
+- Within a house, the user can:
+    - View resources
+    - Add new resources (if admin)
+    - Add new members by entering their username (admin only)
+- Selecting a resource opens the **Resource Booking** screen.
+- User creates a booking for the selected resource.
+- User may also view all their bookings in the **Bookings** screen.
+- The **Profile** screen displays user information and includes a logout option.
+
+---
+
+### Flowchart
+
+![image.png](proposal_flowchart.png)
