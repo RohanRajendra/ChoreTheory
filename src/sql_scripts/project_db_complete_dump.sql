@@ -34,12 +34,13 @@ CREATE TABLE house (
     name VARCHAR(255) NOT NULL
 );
 
--- user to house relationship many to many relationship. 
+-- user to house relationship many to many relationship.
 DROP TABLE IF EXISTS user_house;
 CREATE TABLE user_house (
     email VARCHAR(255) NOT NULL,
     house_id INT NOT NULL,
     is_admin TINYINT(1) DEFAULT FALSE,
+    role ENUM('admin', 'member', 'guest') NOT NULL DEFAULT 'member',
     PRIMARY KEY (email, house_id),
     FOREIGN KEY (email)
         REFERENCES user_table(email)
@@ -389,8 +390,8 @@ BEGIN
 
     -- is_admin = TRUE: before_user_house_insert trigger will
     -- confirm no admin exists yet, which is safe on a new house.
-    INSERT INTO user_house (email, house_id, is_admin)
-    VALUES (p_creator_email, p_house_id, TRUE);
+    INSERT INTO user_house (email, house_id, is_admin, role)
+    VALUES (p_creator_email, p_house_id, TRUE, 'admin');
 END$$
 
 
@@ -415,7 +416,7 @@ END$$
 DROP PROCEDURE IF EXISTS get_user_houses$$
 CREATE PROCEDURE get_user_houses(IN p_email VARCHAR(255))
 BEGIN
-    SELECT h.house_id, h.address, h.name, uh.is_admin
+    SELECT h.house_id, h.address, h.name, uh.is_admin, uh.role
     FROM house h
     JOIN user_house uh ON h.house_id = uh.house_id
     WHERE uh.email = p_email;
@@ -473,7 +474,8 @@ DROP PROCEDURE IF EXISTS add_user_to_house$$
 CREATE PROCEDURE add_user_to_house(
     IN p_admin_email    VARCHAR(255),
     IN p_new_user_email VARCHAR(255),
-    IN p_house_id       INT
+    IN p_house_id       INT,
+    IN p_role           VARCHAR(20)
 )
 BEGIN
     DECLARE admin_check INT DEFAULT 0;
@@ -503,8 +505,8 @@ BEGIN
             SET MESSAGE_TEXT = 'User is already a member of this house.';
     END IF;
 
-    INSERT INTO user_house (email, house_id, is_admin)
-    VALUES (p_new_user_email, p_house_id, FALSE);
+    INSERT INTO user_house (email, house_id, is_admin, role)
+    VALUES (p_new_user_email, p_house_id, FALSE, COALESCE(p_role, 'member'));
 END$$
 
 
@@ -515,7 +517,7 @@ END$$
 DROP PROCEDURE IF EXISTS get_house_members$$
 CREATE PROCEDURE get_house_members(IN p_house_id INT)
 BEGIN
-    SELECT u.email, u.name, uh.is_admin
+    SELECT u.email, u.name, uh.is_admin, uh.role
     FROM user_table u
     JOIN user_house uh ON u.email = uh.email
     WHERE uh.house_id = p_house_id;
@@ -1139,6 +1141,98 @@ BEGIN
     UPDATE user_expense
     SET payment_status = 'paid'
     WHERE email = p_email AND expense_id = p_expense_id;
+END$$
+
+
+-- =============================================================
+-- PROCEDURES — ANALYTICS
+-- =============================================================
+
+DROP PROCEDURE IF EXISTS get_expense_trend_by_month$$
+CREATE PROCEDURE get_expense_trend_by_month(IN p_house_id INT)
+BEGIN
+    SELECT
+        YEAR(e.creation_date)  AS yr,
+        MONTH(e.creation_date) AS mo,
+        SUM(e.amount)          AS total_amount
+    FROM expense e
+    JOIN user_expense ue ON e.expense_id = ue.expense_id
+    JOIN user_house   uh ON ue.email     = uh.email
+    WHERE uh.house_id = p_house_id
+    GROUP BY yr, mo
+    ORDER BY yr, mo;
+END$$
+
+
+DROP PROCEDURE IF EXISTS get_top_spenders$$
+CREATE PROCEDURE get_top_spenders(IN p_house_id INT)
+BEGIN
+    SELECT
+        ue.email,
+        u.name,
+        SUM(ue.user_share) AS total_spent
+    FROM user_expense ue
+    JOIN user_table  u  ON ue.email      = u.email
+    JOIN user_house  uh ON ue.email      = uh.email
+    WHERE uh.house_id = p_house_id
+    GROUP BY ue.email, u.name
+    ORDER BY total_spent DESC
+    LIMIT 5;
+END$$
+
+
+DROP PROCEDURE IF EXISTS get_resource_booking_frequency$$
+CREATE PROCEDURE get_resource_booking_frequency(IN p_house_id INT)
+BEGIN
+    SELECT
+        r.resource_id,
+        r.name AS resource_name,
+        CASE
+            WHEN rs.resource_id IS NOT NULL THEN 'space'
+            WHEN ra.resource_id IS NOT NULL THEN 'appliance'
+            ELSE 'base'
+        END AS resource_type,
+        COUNT(b.booking_id) AS booking_count
+    FROM resource_table r
+    LEFT JOIN resource_space    rs ON r.resource_id = rs.resource_id
+    LEFT JOIN resource_appliance ra ON r.resource_id = ra.resource_id
+    LEFT JOIN booking           b  ON r.resource_id = b.resource_id
+    WHERE r.house_id = p_house_id
+    GROUP BY r.resource_id, r.name, resource_type
+    ORDER BY booking_count DESC;
+END$$
+
+
+DROP PROCEDURE IF EXISTS get_expense_settlement_breakdown$$
+CREATE PROCEDURE get_expense_settlement_breakdown(IN p_house_id INT)
+BEGIN
+    SELECT
+        ue.payment_status,
+        COUNT(*) AS cnt
+    FROM user_expense ue
+    JOIN user_house uh ON ue.email = uh.email
+    WHERE uh.house_id = p_house_id
+    GROUP BY ue.payment_status;
+END$$
+
+
+DROP PROCEDURE IF EXISTS get_resource_utilization_by_type$$
+CREATE PROCEDURE get_resource_utilization_by_type(IN p_house_id INT)
+BEGIN
+    SELECT
+        CASE
+            WHEN rs.resource_id IS NOT NULL THEN 'space'
+            WHEN ra.resource_id IS NOT NULL THEN 'appliance'
+            ELSE 'base'
+        END AS resource_type,
+        SUM(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time)) AS total_minutes_booked,
+        COUNT(b.booking_id) AS booking_count
+    FROM booking b
+    JOIN resource_table  r  ON b.resource_id = r.resource_id
+    LEFT JOIN resource_space    rs ON r.resource_id = rs.resource_id
+    LEFT JOIN resource_appliance ra ON r.resource_id = ra.resource_id
+    WHERE r.house_id = p_house_id
+    GROUP BY resource_type;
 END$$
 
 

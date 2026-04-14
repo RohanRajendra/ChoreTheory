@@ -47,7 +47,7 @@ export default function AnalyticsDashboard({
   const [bookingFreq, setBookingFreq] = useState<Array<{ resource_name: string; booking_count: number; resource_type: string }>>([]);
   const [settlement, setSettlement] = useState<Array<{ payment_status: string; cnt: number }>>([]);
   const [utilization, setUtilization] = useState<Array<{ resource_type: string; total_minutes_booked: number; booking_count: number }>>([]);
-  const [recommendations, setRecommendations] = useState<Array<{ resource_name: string; resource_type: string; score: number }>>([]);
+  const [recommendations, setRecommendations] = useState<Array<{ resource_id: number; resource_name: string; resource_type: string; score: number }>>([]);
   const [forecastMessage, setForecastMessage] = useState('');
   const [recoMessage, setRecoMessage] = useState('');
 
@@ -120,7 +120,7 @@ export default function AnalyticsDashboard({
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="label" tick={{ fontSize: 12 }} />
               <YAxis tickFormatter={(v) => `$${v}`} />
-              <Tooltip formatter={(v: number) => `$${v?.toFixed(2)}`} />
+              <Tooltip formatter={(v) => `$${Number(v).toFixed(2)}`} />
               <Legend />
               <Line type="monotone" dataKey="total" name="Actual ($)" stroke="#6366f1" strokeWidth={2} dot connectNulls />
               <Line type="monotone" dataKey="predicted" name="Forecast ($)" stroke="#f59e0b" strokeWidth={2} strokeDasharray="6 3" dot connectNulls />
@@ -140,7 +140,7 @@ export default function AnalyticsDashboard({
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" tickFormatter={(v) => `$${v}`} />
               <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12 }} />
-              <Tooltip formatter={(v: number) => `$${v.toFixed(2)}`} />
+              <Tooltip formatter={(v) => `$${Number(v).toFixed(2)}`} />
               <Bar dataKey="total_spent" name="Total Spent ($)" fill="#6366f1" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -180,8 +180,8 @@ export default function AnalyticsDashboard({
                 cx="50%"
                 cy="50%"
                 outerRadius={90}
-                label={({ payment_status, percent }) =>
-                  `${payment_status} ${(percent * 100).toFixed(0)}%`
+                label={({ name, percent }) =>
+                  `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
                 }
               >
                 {settlement.map((_, i) => (
