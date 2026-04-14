@@ -1,41 +1,75 @@
+// Types aligned with FastAPI backend response shapes.
+// email is the user identifier throughout — there is no separate username.
+
 export type User = {
-  username: string;
+  email: string;
   name: string;
-  isAdmin: boolean;
 };
 
+// is_admin is per house, not a global user property.
+// It is included on the House type as returned by get_user_houses.
 export type House = {
-  id: string;
+  house_id: number;
   name: string;
   address: string;
-  isCurrentUserAdmin: boolean;
+  is_admin: boolean;          // true if the current user is admin of this house
 };
 
 export type Resource = {
-  id: string;
-  houseId: string;
+  resource_id: number;
+  house_id: number;
   name: string;
-  icon: string;
-  timeLimit: string;
-  type: 'space' | 'appliance';
+  icon: string | null;
+  time_limit: number;         // in minutes
+  resource_type: 'space' | 'appliance' | 'base';
+
+  // Space fields — present when resource_type === 'space'
+  clean_after_use: boolean | null;
+  max_occupancy: number | null;
+
+  // Appliance fields — present when resource_type === 'appliance'
+  requires_maintenance: boolean | null;
 };
 
 export type Booking = {
-  id: string;
-  resourceId: string;
-  resourceName: string;
-  houseName: string;
-  startTime: string;
-  endTime: string;
-  reminderTime: string;
+  booking_id: number;
+  resource_id: number;
+  resource_name: string;
+  house_id: number;
+  start_time: string;
+  end_time: string;
+  user_email: string;
+};
+
+export type Reminder = {
+  reminder_id: number;
+  booking_id: number;
+  reminder_time: string;
+  status: 'pending' | 'sent' | 'cancelled';
+  message: string | null;
 };
 
 export type Expense = {
-  id: string;
-  houseId: string;
+  expense_id: number;
   amount: number;
   description: string;
-  dueDate: string;
-  createdBy: string;
-  splitCount: number;
+  due_date: string;
+  creation_date: string;
+  receipts_attachment: string | null;
+  is_recurring: boolean;
+  created_by: string;
+  creator_name: string | null;
+};
+
+export type ExpenseParticipant = {
+  email: string;
+  name: string;
+  user_share: number;
+  payment_status: 'unpaid' | 'paid' | 'partial';
+};
+
+export type HouseMember = {
+  email: string;
+  name: string;
+  is_admin: boolean;
 };

@@ -8,10 +8,10 @@ export default function ResourceCard({ resource }: { resource: Resource }) {
         <h3>
           {resource.icon} {resource.name}
         </h3>
-        <p className="muted">Type: {resource.type}</p>
-        <p className="muted">Time limit: {resource.timeLimit}</p>
+        <p className="muted">Type: {resource.resource_type}</p>
+        <p className="muted">Time limit: {resource.time_limit} min</p>
       </div>
-      <Link href={`/resource/${resource.id}`} className="button secondaryButton">
+      <Link href={`/resource/${resource.resource_id}`} className="button secondaryButton">
         Book Resource
       </Link>
     </div>

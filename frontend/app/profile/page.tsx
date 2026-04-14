@@ -1,23 +1,56 @@
+'use client';
+
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import AppShell from '@/components/AppShell';
 import SectionHeader from '@/components/SectionHeader';
-import { currentUser, houses } from '@/lib/mock-data';
+import { getUser } from '@/lib/api';
 
 export default function ProfilePage() {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const storedEmail = localStorage.getItem('userEmail');
+        if (!storedEmail) return;
+        const result = await getUser(storedEmail);
+        setName(result.name);
+        setEmail(result.email);
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  function handleLogout() {
+    localStorage.removeItem('userEmail');
+    localStorage.removeItem('userName');
+  }
+
   return (
     <AppShell>
-      <SectionHeader title="Profile" description="Basic user information and logout action." />
+      <SectionHeader title="Profile" description="Your account information." />
 
-      <section className="panel">
-        <p><strong>Name:</strong> {currentUser.name}</p>
-        <p><strong>Username:</strong> {currentUser.username}</p>
-        <p><strong>Total houses:</strong> {houses.length}</p>
-        <p><strong>Admin status:</strong> {currentUser.isAdmin ? 'Yes' : 'No'}</p>
+      {loading && <p className="muted">Loading...</p>}
+      {error && <p className="error">{error}</p>}
 
-        <Link href="/login" className="button logoutButton">
-          Logout
-        </Link>
-      </section>
+      {!loading && !error && (
+        <section className="panel">
+          <p><strong>Name:</strong> {name}</p>
+          <p><strong>Email:</strong> {email}</p>
+
+          <Link href="/login" className="button logoutButton" onClick={handleLogout}>
+            Logout
+          </Link>
+        </section>
+      )}
     </AppShell>
   );
 }
