@@ -74,6 +74,8 @@ export default function HouseDetailsPage({
     load();
   }, [houseId]);
 
+  const houseId = house.id;
+
   async function handleAddResource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setResourceError('');
