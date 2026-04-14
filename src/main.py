@@ -4,6 +4,13 @@ from routers import users, houses, resources, bookings, reminders, expenses, ana
 
 app = FastAPI(title="Shared Home Scheduler API")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(users.router)
 app.include_router(houses.router)
 app.include_router(resources.router)
@@ -13,9 +20,3 @@ app.include_router(expenses.router)
 app.include_router(analytics.router)
 app.include_router(ml.router)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)

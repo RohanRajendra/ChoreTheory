@@ -1346,7 +1346,7 @@ START TRANSACTION;
 
 -- user_table
 INSERT INTO user_table (email, name, password) VALUES
-('cristiano.ronaldo@gmail.com', 'Cristiano Ronaldo', '$2b$12$KIXQ1u6LzJ8wF8hZp1lY8e7QeQ1u6LzJ8wF8hZp1lY8e7QeQ1u6LzJ8'),
+('cristiano.ronaldo@gmail.com', 'Cristiano Ronaldo', '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8'),
 ('bhaichung.bhutia@gmail.com', 'Bhaichung Bhutia', '$2b$12$7uQ1u6LzJ8wF8hZp1lY8eKIXQeQ1u6LzJ8wF8hZp1lY8e7QeQ1u6'),
 ('carlos.luiz@gmail.com', 'Carlos Luiz', '$2b$12$Zp1lY8e7QeQ1u6LzJ8wF8hKIXQ1u6LzJ8wF8hZp1lY8e7QeQ1'),
 ('sunil.chhetri@gmail.com', 'Sunil Chhetri', '$2b$12$F8hZp1lY8e7QeQ1u6LzJ8wKIXQ1u6LzJ8wF8hZp1lY8e7QeQ'),
