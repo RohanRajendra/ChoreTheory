@@ -1,22 +1,38 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, use, useEffect, useState } from 'react';
 import AppShell from '@/components/AppShell';
 import ResourceCard from '@/components/ResourceCard';
 import SectionHeader from '@/components/SectionHeader';
-import { addMemberToHouse, addResource, getHouse, getHouseResources } from '@/lib/api';
-import { House, Resource } from '@/lib/types';
+import {
+  addMemberToHouse,
+  addResource,
+  deleteResource,
+  getHouse,
+  getHouseBalance,
+  getHouseMembers,
+  getHouseResources,
+  removeMemberFromHouse,
+} from '@/lib/api';
+import { House, HouseMember, Resource } from '@/lib/types';
 
-export default function HouseDetailsPage({ params }: { params: { houseId: string } }) {
-  const houseId = Number(params.houseId);
+export default function HouseDetailsPage({
+  params,
+}: {
+  params: Promise<{ houseId: string }>;
+}) {
+  const { houseId: houseIdStr } = use(params);
+  const houseId = Number(houseIdStr);
 
   const [house, setHouse] = useState<House | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
+  const [members, setMembers] = useState<HouseMember[]>([]);
+  const [balance, setBalance] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Resource form state
+  // Resource form
   const [resourceName, setResourceName] = useState('');
   const [resourceIcon, setResourceIcon] = useState('🏠');
   const [timeLimit, setTimeLimit] = useState(60);
@@ -26,23 +42,29 @@ export default function HouseDetailsPage({ params }: { params: { houseId: string
   const [requiresMaintenance, setRequiresMaintenance] = useState(false);
   const [resourceError, setResourceError] = useState('');
 
-  // Member form state
+  // Member form
   const [newMember, setNewMember] = useState('');
   const [memberError, setMemberError] = useState('');
+  const [memberSuccess, setMemberSuccess] = useState('');
 
   useEffect(() => {
     async function load() {
       try {
-        const [houseData, resourceData] = await Promise.all([
+        const [houseData, resourceData, memberData, balanceData] = await Promise.all([
           getHouse(houseId),
           getHouseResources(houseId),
+          getHouseMembers(houseId),
+          getHouseBalance(houseId),
         ]);
-        // Attach is_admin from localStorage-cached house list or default false
-        const email = localStorage.getItem('userEmail');
+
         const storedHouses = JSON.parse(localStorage.getItem('userHouses') ?? '[]');
-        const match = storedHouses.find((h: { house_id: number }) => h.house_id === houseId);
+        const match = storedHouses.find(
+          (h: { house_id: number }) => h.house_id === houseId
+        );
         setHouse({ ...houseData, is_admin: match?.is_admin ?? false });
         setResources(resourceData);
+        setMembers(memberData);
+        setBalance(balanceData.total_expenses);
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -64,9 +86,9 @@ export default function HouseDetailsPage({ params }: { params: { houseId: string
         subclass: resourceType,
         clean_after_use: resourceType === 'space' ? cleanAfterUse : undefined,
         max_occupancy: resourceType === 'space' ? maxOccupancy : undefined,
-        requires_maintenance: resourceType === 'appliance' ? requiresMaintenance : undefined,
+        requires_maintenance:
+          resourceType === 'appliance' ? requiresMaintenance : undefined,
       });
-      // Optimistically add the new resource to the list
       setResources((prev) => [
         ...prev,
         {
@@ -78,7 +100,8 @@ export default function HouseDetailsPage({ params }: { params: { houseId: string
           resource_type: resourceType,
           clean_after_use: resourceType === 'space' ? cleanAfterUse : null,
           max_occupancy: resourceType === 'space' ? maxOccupancy : null,
-          requires_maintenance: resourceType === 'appliance' ? requiresMaintenance : null,
+          requires_maintenance:
+            resourceType === 'appliance' ? requiresMaintenance : null,
         },
       ]);
       setResourceName('');
@@ -89,9 +112,19 @@ export default function HouseDetailsPage({ params }: { params: { houseId: string
     }
   }
 
+  async function handleDeleteResource(resourceId: number) {
+    try {
+      await deleteResource(resourceId);
+      setResources((prev) => prev.filter((r) => r.resource_id !== resourceId));
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
   async function handleAddMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMemberError('');
+    setMemberSuccess('');
     try {
       const adminEmail = localStorage.getItem('userEmail');
       if (!adminEmail) throw new Error('Not logged in.');
@@ -100,10 +133,22 @@ export default function HouseDetailsPage({ params }: { params: { houseId: string
         admin_email: adminEmail,
         new_user_email: newMember,
       });
+      const updated = await getHouseMembers(houseId);
+      setMembers(updated);
+      setMemberSuccess(`${newMember} added successfully.`);
       setNewMember('');
-      alert(`${newMember} added successfully.`);
     } catch (e) {
       setMemberError((e as Error).message);
+    }
+  }
+
+  async function handleRemoveMember(email: string) {
+    if (!confirm(`Remove ${email} from this house?`)) return;
+    try {
+      await removeMemberFromHouse(houseId, email);
+      setMembers((prev) => prev.filter((m) => m.email !== email));
+    } catch (e) {
+      alert((e as Error).message);
     }
   }
 
@@ -123,15 +168,55 @@ export default function HouseDetailsPage({ params }: { params: { houseId: string
         }
       />
 
+      {/* House balance summary */}
+      {balance !== null && (
+        <section className="panel">
+          <p>
+            <strong>Total house expenses:</strong> ${balance.toFixed(2)}
+          </p>
+        </section>
+      )}
+
+      {/* Resources */}
       <section className="panel">
         <h2>Resources</h2>
+        {resources.length === 0 && (
+          <p className="muted">No resources yet.</p>
+        )}
         <div className="grid">
           {resources.map((resource) => (
-            <ResourceCard key={resource.resource_id} resource={resource} />
+            <ResourceCard
+              key={resource.resource_id}
+              resource={resource}
+              onDelete={house.is_admin ? handleDeleteResource : undefined}
+            />
           ))}
         </div>
       </section>
 
+      {/* Members */}
+      <section className="panel">
+        <h2>Members</h2>
+        {members.map((member) => (
+          <div key={member.email} className="card">
+            <div>
+              <p><strong>{member.name}</strong></p>
+              <p className="muted">{member.email}</p>
+              <span className="badge">{member.is_admin ? 'Admin' : 'Member'}</span>
+            </div>
+            {house.is_admin && !member.is_admin && (
+              <button
+                className="button secondaryButton"
+                onClick={() => handleRemoveMember(member.email)}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        ))}
+      </section>
+
+      {/* Admin-only sections */}
       {house.is_admin && (
         <>
           <section className="panel">
@@ -140,12 +225,20 @@ export default function HouseDetailsPage({ params }: { params: { houseId: string
             <form className="formGrid" onSubmit={handleAddResource}>
               <label>
                 Resource name
-                <input value={resourceName} onChange={(e) => setResourceName(e.target.value)} required />
+                <input
+                  value={resourceName}
+                  onChange={(e) => setResourceName(e.target.value)}
+                  required
+                />
               </label>
 
               <label>
                 Icon
-                <input value={resourceIcon} onChange={(e) => setResourceIcon(e.target.value)} required />
+                <input
+                  value={resourceIcon}
+                  onChange={(e) => setResourceIcon(e.target.value)}
+                  required
+                />
               </label>
 
               <label>
@@ -163,7 +256,9 @@ export default function HouseDetailsPage({ params }: { params: { houseId: string
                 Resource type
                 <select
                   value={resourceType}
-                  onChange={(e) => setResourceType(e.target.value as 'space' | 'appliance')}
+                  onChange={(e) =>
+                    setResourceType(e.target.value as 'space' | 'appliance')
+                  }
                 >
                   <option value="space">Space</option>
                   <option value="appliance">Appliance</option>
@@ -211,8 +306,12 @@ export default function HouseDetailsPage({ params }: { params: { houseId: string
           </section>
 
           <section className="panel">
-            <h2>Add Member by Email</h2>
+            <h2>Add Member</h2>
+            <p className="muted">
+              The person must already have a HouseMate account.
+            </p>
             {memberError && <p className="error">{memberError}</p>}
+            {memberSuccess && <p className="success">{memberSuccess}</p>}
             <form className="inlineForm" onSubmit={handleAddMember}>
               <input
                 type="email"

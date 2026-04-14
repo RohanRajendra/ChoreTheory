@@ -5,9 +5,11 @@ import AppShell from '@/components/AppShell';
 import SectionHeader from '@/components/SectionHeader';
 import { createBooking, getResource } from '@/lib/api';
 import { Resource } from '@/lib/types';
+import { use } from 'react';
 
-export default function ResourceBookingPage({ params }: { params: { resourceId: string } }) {
-  const resourceId = Number(params.resourceId);
+export default function ResourceBookingPage({ params }: { params: Promise<{ resourceId: string }> }) {
+  const { resourceId: resourceIdStr } = use(params);
+  const resourceId = Number(resourceIdStr);
 
   const [resource, setResource] = useState<Resource | null>(null);
   const [loading, setLoading] = useState(true);

@@ -22,6 +22,9 @@ export default function HouseListPage() {
         if (!email) return;
         const result = await getUserHouses(email);
         setHouses(result);
+        // Store houses so [houseId]/page.tsx can read is_admin
+        // without an extra API call.
+        localStorage.setItem('userHouses', JSON.stringify(result));
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -38,11 +41,15 @@ export default function HouseListPage() {
       const email = localStorage.getItem('userEmail');
       if (!email) throw new Error('Not logged in.');
       const result = await createHouse({ name: houseName, address, creator_email: email });
-      // Optimistically add the new house to the list
-      setHouses((prev) => [
-        ...prev,
-        { house_id: result.house_id, name: houseName, address, is_admin: true },
-      ]);
+      const newHouse: House = {
+        house_id: result.house_id,
+        name: houseName,
+        address,
+        is_admin: true,
+      };
+      const updated = [...houses, newHouse];
+      setHouses(updated);
+      localStorage.setItem('userHouses', JSON.stringify(updated));
       setHouseName('');
       setAddress('');
     } catch (e) {
