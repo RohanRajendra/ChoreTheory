@@ -22,10 +22,12 @@ export default function HouseDetailsPage({ params }: { params: { houseId: string
     return <AppShell><p>House not found.</p></AppShell>;
   }
 
+  const houseId = house.id;
+
   async function handleAddResource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await addResource({
-      houseId: house.id,
+      houseId,
       name: resourceName,
       icon: resourceIcon,
       timeLimit,
