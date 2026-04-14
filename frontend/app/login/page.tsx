@@ -7,24 +7,39 @@ import { loginUser } from '@/lib/api';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [username, setUsername] = useState('atharva');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await loginUser({ username, password });
-    router.push('/houses');
+    setError('');
+    try {
+      const result = await loginUser({ email, password });
+      localStorage.setItem('userEmail', result.email);
+      localStorage.setItem('userName', result.name);
+      router.push('/houses');
+    } catch (e) {
+      setError((e as Error).message);
+    }
   }
 
   return (
     <div className="authPage">
       <form className="authCard" onSubmit={handleSubmit}>
         <h1>Login</h1>
-        <p className="muted">Enter your username and password.</p>
+        <p className="muted">Enter your email and password.</p>
+
+        {error && <p className="error">{error}</p>}
 
         <label>
-          Username
-          <input value={username} onChange={(e) => setUsername(e.target.value)} required />
+          Email
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
         </label>
 
         <label>

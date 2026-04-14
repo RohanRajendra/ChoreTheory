@@ -8,13 +8,21 @@ import { signupUser } from '@/lib/api';
 export default function SignupPage() {
   const router = useRouter();
   const [name, setName] = useState('');
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await signupUser({ name, username, password });
-    router.push('/houses');
+    setError('');
+    try {
+      await signupUser({ email, name, password });
+      localStorage.setItem('userEmail', email);
+      localStorage.setItem('userName', name);
+      router.push('/houses');
+    } catch (e) {
+      setError((e as Error).message);
+    }
   }
 
   return (
@@ -23,14 +31,21 @@ export default function SignupPage() {
         <h1>Sign Up</h1>
         <p className="muted">Create an account to join or manage houses.</p>
 
+        {error && <p className="error">{error}</p>}
+
         <label>
           Full name
           <input value={name} onChange={(e) => setName(e.target.value)} required />
         </label>
 
         <label>
-          Username
-          <input value={username} onChange={(e) => setUsername(e.target.value)} required />
+          Email
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
         </label>
 
         <label>

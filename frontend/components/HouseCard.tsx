@@ -7,9 +7,9 @@ export default function HouseCard({ house }: { house: House }) {
       <div>
         <h3>{house.name}</h3>
         <p className="muted">{house.address}</p>
-        <span className="badge">{house.isCurrentUserAdmin ? 'Admin' : 'Member'}</span>
+        <span className="badge">{house.is_admin ? 'Admin' : 'Member'}</span>
       </div>
-      <Link href={`/houses/${house.id}`} className="button secondaryButton">
+      <Link href={`/houses/${house.house_id}`} className="button secondaryButton">
         View House
       </Link>
     </div>

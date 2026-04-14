@@ -1,40 +1,83 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import AppShell from '@/components/AppShell';
 import HouseCard from '@/components/HouseCard';
 import SectionHeader from '@/components/SectionHeader';
-import { createHouse } from '@/lib/api';
-import { houses } from '@/lib/mock-data';
+import { createHouse, getUserHouses } from '@/lib/api';
+import { House } from '@/lib/types';
 
 export default function HouseListPage() {
+  const [houses, setHouses] = useState<House[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [houseName, setHouseName] = useState('');
   const [address, setAddress] = useState('');
+  const [formError, setFormError] = useState('');
+
+  useEffect(() => {
+    async function loadHouses() {
+      try {
+        const email = localStorage.getItem('userEmail');
+        if (!email) return;
+        const result = await getUserHouses(email);
+        setHouses(result);
+        // Store houses so [houseId]/page.tsx can read is_admin
+        // without an extra API call.
+        localStorage.setItem('userHouses', JSON.stringify(result));
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadHouses();
+  }, []);
 
   async function handleCreateHouse(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await createHouse({ name: houseName, address });
-    setHouseName('');
-    setAddress('');
-    alert('House submitted. Connect this to FastAPI and refresh with real data.');
+    setFormError('');
+    try {
+      const email = localStorage.getItem('userEmail');
+      if (!email) throw new Error('Not logged in.');
+      const result = await createHouse({ name: houseName, address, creator_email: email });
+      const newHouse: House = {
+        house_id: result.house_id,
+        name: houseName,
+        address,
+        is_admin: true,
+      };
+      const updated = [...houses, newHouse];
+      setHouses(updated);
+      localStorage.setItem('userHouses', JSON.stringify(updated));
+      setHouseName('');
+      setAddress('');
+    } catch (e) {
+      setFormError((e as Error).message);
+    }
   }
 
   return (
     <AppShell>
       <SectionHeader
         title="Your Houses"
-        description="This is the HouseListView. After login, show every house connected to the user."
+        description="All houses you belong to."
       />
+
+      {loading && <p className="muted">Loading houses...</p>}
+      {error && <p className="error">{error}</p>}
 
       <div className="grid">
         {houses.map((house) => (
-          <HouseCard key={house.id} house={house} />
+          <HouseCard key={house.house_id} house={house} />
         ))}
       </div>
 
       <section className="panel">
         <h2>Create New House</h2>
-        <p className="muted">When a user creates a house, they become its admin.</p>
+        <p className="muted">When you create a house, you become its admin.</p>
+
+        {formError && <p className="error">{formError}</p>}
 
         <form className="formGrid" onSubmit={handleCreateHouse}>
           <label>
