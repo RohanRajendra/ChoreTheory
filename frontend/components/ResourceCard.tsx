@@ -4,9 +4,10 @@ import { Resource } from '@/lib/types';
 interface ResourceCardProps {
   resource: Resource;
   onDelete?: (resourceId: number) => void; // only passed in when current user is admin
+  canBook?: boolean;                        // false for guests
 }
 
-export default function ResourceCard({ resource, onDelete }: ResourceCardProps) {
+export default function ResourceCard({ resource, onDelete, canBook = true }: ResourceCardProps) {
   return (
     <div className="card">
       <div>
@@ -18,9 +19,11 @@ export default function ResourceCard({ resource, onDelete }: ResourceCardProps) 
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-        <Link href={`/resource/${resource.resource_id}`} className="button secondaryButton">
-          Book Resource
-        </Link>
+        {canBook && (
+          <Link href={`/resource/${resource.resource_id}`} className="button secondaryButton">
+            Book Resource
+          </Link>
+        )}
 
         {onDelete && (
           <button

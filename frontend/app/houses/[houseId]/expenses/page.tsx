@@ -23,6 +23,7 @@ export default function HouseExpensesPage({
   const houseId = Number(houseIdStr);
 
   const [houseName, setHouseName] = useState('');
+  const [userRole, setUserRole] = useState<'admin' | 'member' | 'guest'>('member');
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [participants, setParticipants] = useState<
     Record<number, ExpenseParticipant[]>
@@ -59,6 +60,9 @@ export default function HouseExpensesPage({
         ]);
         setHouseName(houseData.name);
         setExpenses(expenseData);
+        const storedHouses = JSON.parse(localStorage.getItem('userHouses') ?? '[]');
+        const match = storedHouses.find((h: { house_id: number }) => h.house_id === houseId);
+        setUserRole(match?.role ?? 'member');
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -176,8 +180,8 @@ export default function HouseExpensesPage({
           </div>
 
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-            {/* Settle — only if not already paid */}
-            {expense.payment_status !== 'paid' && (
+            {/* Settle — only if not already paid and not a guest */}
+            {expense.payment_status !== 'paid' && userRole !== 'guest' && (
               <button
                 className="button"
                 onClick={() => handleSettle(expense.expense_id)}
@@ -256,7 +260,13 @@ export default function HouseExpensesPage({
         </div>
       ))}
 
-      <section className="panel">
+      {userRole === 'guest' && (
+        <p className="muted" style={{ padding: '0.5rem 0' }}>
+          You are a guest — you can view expenses but cannot add or modify them.
+        </p>
+      )}
+
+      {userRole !== 'guest' && <section className="panel">
         <h2>Add Expense</h2>
         {formError && <p className="error">{formError}</p>}
         <form className="formGrid" onSubmit={handleExpenseSubmit}>
@@ -304,7 +314,7 @@ export default function HouseExpensesPage({
             Add Expense
           </button>
         </form>
-      </section>
+      </section>}
     </AppShell>
   );
 }

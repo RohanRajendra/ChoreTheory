@@ -25,6 +25,7 @@ export default function HouseDetailsPage({
   const { houseId: houseIdStr } = use(params);
   const houseId = Number(houseIdStr);
 
+  const [userRole, setUserRole] = useState<'admin' | 'member' | 'guest'>('member');
   const [house, setHouse] = useState<House | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
   const [members, setMembers] = useState<HouseMember[]>([]);
@@ -44,6 +45,7 @@ export default function HouseDetailsPage({
 
   // Member form
   const [newMember, setNewMember] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState<'member' | 'guest'>('member');
   const [memberError, setMemberError] = useState('');
   const [memberSuccess, setMemberSuccess] = useState('');
 
@@ -61,8 +63,10 @@ export default function HouseDetailsPage({
         const match = storedHouses.find(
           (h: { house_id: number }) => h.house_id === houseId
         );
-        setHouse({ ...houseData, is_admin: match?.is_admin ?? false });
-        setResources(resourceData);
+        const role = match?.role ?? 'member';
+        setUserRole(role);
+        setHouse({ ...houseData, is_admin: match?.is_admin ?? false, role });
+        setResources(resourceData.map((r) => ({ ...r, house_id: houseId })));
         setMembers(memberData);
         setBalance(balanceData.total_expenses);
       } catch (e) {
@@ -132,6 +136,7 @@ export default function HouseDetailsPage({
         houseId,
         admin_email: adminEmail,
         new_user_email: newMember,
+        role: newMemberRole,
       });
       const updated = await getHouseMembers(houseId);
       setMembers(updated);
@@ -162,9 +167,14 @@ export default function HouseDetailsPage({
         title={house.name}
         description={`Address: ${house.address}`}
         action={
-          <Link href={`/houses/${houseId}/expenses`} className="button secondaryButton">
-            View Expenses
-          </Link>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <Link href={`/houses/${houseId}/expenses`} className="button secondaryButton">
+              View Expenses
+            </Link>
+            <Link href={`/houses/${houseId}/analytics`} className="button secondaryButton">
+              Analytics
+            </Link>
+          </div>
         }
       />
 
@@ -189,6 +199,7 @@ export default function HouseDetailsPage({
               key={resource.resource_id}
               resource={resource}
               onDelete={house.is_admin ? handleDeleteResource : undefined}
+              canBook={userRole !== 'guest'}
             />
           ))}
         </div>
@@ -202,7 +213,7 @@ export default function HouseDetailsPage({
             <div>
               <p><strong>{member.name}</strong></p>
               <p className="muted">{member.email}</p>
-              <span className="badge">{member.is_admin ? 'Admin' : 'Member'}</span>
+              <span className="badge">{member.role ?? (member.is_admin ? 'admin' : 'member')}</span>
             </div>
             {house.is_admin && !member.is_admin && (
               <button
@@ -320,8 +331,15 @@ export default function HouseDetailsPage({
                 onChange={(e) => setNewMember(e.target.value)}
                 required
               />
+              <select
+                value={newMemberRole}
+                onChange={(e) => setNewMemberRole(e.target.value as 'member' | 'guest')}
+              >
+                <option value="member">Member</option>
+                <option value="guest">Guest (read-only)</option>
+              </select>
               <button className="button" type="submit">
-                Add Member
+                Add
               </button>
             </form>
           </section>
