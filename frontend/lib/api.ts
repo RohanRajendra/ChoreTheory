@@ -103,6 +103,7 @@ export async function getUserHouses(email: string) {
       name: string;
       address: string;
       is_admin: boolean;
+      role: 'admin' | 'member' | 'guest';
     }>
   >(`/houses/user/${encodeURIComponent(email)}`);
 }
@@ -148,7 +149,7 @@ export async function deleteHouse(houseId: number) {
 }
 
 export async function getHouseMembers(houseId: number) {
-  return request<Array<{ email: string; name: string; is_admin: boolean }>>(
+  return request<Array<{ email: string; name: string; is_admin: boolean; role: 'admin' | 'member' | 'guest' }>>(
     `/houses/${houseId}/members`
   );
 }
@@ -158,6 +159,7 @@ export async function addMemberToHouse(payload: {
   houseId: number;
   admin_email: string;
   new_user_email: string;
+  role?: 'member' | 'guest';
 }) {
   return request<{ message: string }>(
     `/houses/${payload.houseId}/members`,
@@ -166,6 +168,7 @@ export async function addMemberToHouse(payload: {
       body: JSON.stringify({
         admin_email: payload.admin_email,
         new_user_email: payload.new_user_email,
+        role: payload.role ?? 'member',
       }),
     }
   );
@@ -463,4 +466,60 @@ export async function deleteExpense(expenseId: number) {
     `/expenses/${expenseId}`,
     { method: 'DELETE' }
   );
+}
+
+
+// ==================================================================
+// ANALYTICS
+// ==================================================================
+
+export async function getExpenseTrend(houseId: number) {
+  return request<Array<{ yr: number; mo: number; total_amount: number }>>(
+    `/analytics/houses/${houseId}/expense-trend`
+  );
+}
+
+export async function getTopSpenders(houseId: number) {
+  return request<Array<{ email: string; name: string; total_spent: number }>>(
+    `/analytics/houses/${houseId}/top-spenders`
+  );
+}
+
+export async function getBookingFrequency(houseId: number) {
+  return request<Array<{ resource_id: number; resource_name: string; resource_type: string; booking_count: number }>>(
+    `/analytics/houses/${houseId}/booking-frequency`
+  );
+}
+
+export async function getSettlementBreakdown(houseId: number) {
+  return request<Array<{ payment_status: string; cnt: number }>>(
+    `/analytics/houses/${houseId}/settlement-breakdown`
+  );
+}
+
+export async function getResourceUtilization(houseId: number) {
+  return request<Array<{ resource_type: string; total_minutes_booked: number; booking_count: number }>>(
+    `/analytics/houses/${houseId}/resource-utilization`
+  );
+}
+
+
+// ==================================================================
+// ML
+// ==================================================================
+
+export async function getExpenseForecast(houseId: number) {
+  return request<{
+    historical: Array<{ yr: number; mo: number; total: number }>;
+    forecast: Array<{ yr: number; mo: number; predicted_amount: number }>;
+    message?: string;
+  }>(`/ml/houses/${houseId}/expense-forecast`);
+}
+
+export async function getResourceRecommendations(houseId: number, userEmail: string) {
+  return request<{
+    user_email: string;
+    recommendations: Array<{ resource_id: number; resource_name: string; resource_type: string; score: number }>;
+    message?: string;
+  }>(`/ml/houses/${houseId}/resource-recommendations?user_email=${encodeURIComponent(userEmail)}`);
 }

@@ -136,7 +136,7 @@ def add_member(house_id: int, payload: AddMember):
     try:
         cursor.callproc(
             "add_user_to_house",
-            [payload.admin_email, payload.new_user_email, house_id]
+            [payload.admin_email, payload.new_user_email, house_id, payload.role]
         )
         connection.commit()
         return {

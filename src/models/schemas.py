@@ -42,6 +42,7 @@ class HouseUpdate(BaseModel):
 class AddMember(BaseModel):
     admin_email: EmailStr
     new_user_email: EmailStr
+    role: str = "member"          # 'member' or 'guest'
 
 
 class RemoveMember(BaseModel):

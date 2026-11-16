@@ -28,6 +28,7 @@ CREATE TABLE user_house (
     email VARCHAR(255) NOT NULL,
     house_id INT NOT NULL,
     is_admin TINYINT(1) DEFAULT FALSE,
+    role ENUM('admin', 'member', 'guest') NOT NULL DEFAULT 'member',
     PRIMARY KEY (email, house_id),
     FOREIGN KEY (email)
         REFERENCES user_table(email)

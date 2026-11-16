@@ -13,6 +13,7 @@ export type House = {
   name: string;
   address: string;
   is_admin: boolean;          // true if the current user is admin of this house
+  role: 'admin' | 'member' | 'guest';
 };
 
 export type Resource = {
@@ -72,4 +73,52 @@ export type HouseMember = {
   email: string;
   name: string;
   is_admin: boolean;
+  role: 'admin' | 'member' | 'guest';
+};
+
+// ==================================================================
+// ANALYTICS TYPES
+// ==================================================================
+
+export type ExpenseTrendPoint = {
+  yr: number;
+  mo: number;
+  total: number;
+};
+
+export type ForecastPoint = {
+  yr: number;
+  mo: number;
+  predicted_amount: number;
+};
+
+export type TopSpender = {
+  email: string;
+  name: string;
+  total_spent: number;
+};
+
+export type BookingFrequencyItem = {
+  resource_id: number;
+  resource_name: string;
+  resource_type: string;
+  booking_count: number;
+};
+
+export type SettlementBreakdownItem = {
+  payment_status: string;
+  cnt: number;
+};
+
+export type ResourceUtilizationItem = {
+  resource_type: string;
+  total_minutes_booked: number;
+  booking_count: number;
+};
+
+export type ResourceRecommendation = {
+  resource_id: number;
+  resource_name: string;
+  resource_type: string;
+  score: number;
 };

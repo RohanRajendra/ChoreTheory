@@ -34,12 +34,13 @@ CREATE TABLE house (
     name VARCHAR(255) NOT NULL
 );
 
--- user to house relationship many to many relationship. 
+-- user to house relationship many to many relationship.
 DROP TABLE IF EXISTS user_house;
 CREATE TABLE user_house (
     email VARCHAR(255) NOT NULL,
     house_id INT NOT NULL,
     is_admin TINYINT(1) DEFAULT FALSE,
+    role ENUM('admin', 'member', 'guest') NOT NULL DEFAULT 'member',
     PRIMARY KEY (email, house_id),
     FOREIGN KEY (email)
         REFERENCES user_table(email)
@@ -389,8 +390,8 @@ BEGIN
 
     -- is_admin = TRUE: before_user_house_insert trigger will
     -- confirm no admin exists yet, which is safe on a new house.
-    INSERT INTO user_house (email, house_id, is_admin)
-    VALUES (p_creator_email, p_house_id, TRUE);
+    INSERT INTO user_house (email, house_id, is_admin, role)
+    VALUES (p_creator_email, p_house_id, TRUE, 'admin');
 END$$
 
 
@@ -415,7 +416,7 @@ END$$
 DROP PROCEDURE IF EXISTS get_user_houses$$
 CREATE PROCEDURE get_user_houses(IN p_email VARCHAR(255))
 BEGIN
-    SELECT h.house_id, h.address, h.name, uh.is_admin
+    SELECT h.house_id, h.address, h.name, uh.is_admin, uh.role
     FROM house h
     JOIN user_house uh ON h.house_id = uh.house_id
     WHERE uh.email = p_email;
@@ -473,7 +474,8 @@ DROP PROCEDURE IF EXISTS add_user_to_house$$
 CREATE PROCEDURE add_user_to_house(
     IN p_admin_email    VARCHAR(255),
     IN p_new_user_email VARCHAR(255),
-    IN p_house_id       INT
+    IN p_house_id       INT,
+    IN p_role           VARCHAR(20)
 )
 BEGIN
     DECLARE admin_check INT DEFAULT 0;
@@ -503,8 +505,8 @@ BEGIN
             SET MESSAGE_TEXT = 'User is already a member of this house.';
     END IF;
 
-    INSERT INTO user_house (email, house_id, is_admin)
-    VALUES (p_new_user_email, p_house_id, FALSE);
+    INSERT INTO user_house (email, house_id, is_admin, role)
+    VALUES (p_new_user_email, p_house_id, FALSE, COALESCE(p_role, 'member'));
 END$$
 
 
@@ -515,7 +517,7 @@ END$$
 DROP PROCEDURE IF EXISTS get_house_members$$
 CREATE PROCEDURE get_house_members(IN p_house_id INT)
 BEGIN
-    SELECT u.email, u.name, uh.is_admin
+    SELECT u.email, u.name, uh.is_admin, uh.role
     FROM user_table u
     JOIN user_house uh ON u.email = uh.email
     WHERE uh.house_id = p_house_id;
@@ -1143,6 +1145,174 @@ END$$
 
 
 -- =============================================================
+-- PROCEDURES — ANALYTICS
+-- =============================================================
+
+DROP PROCEDURE IF EXISTS get_expense_trend_by_month$$
+CREATE PROCEDURE get_expense_trend_by_month(IN p_house_id INT)
+BEGIN
+    SELECT
+        YEAR(e.creation_date)  AS yr,
+        MONTH(e.creation_date) AS mo,
+        SUM(e.amount)          AS total_amount
+    FROM expense e
+    JOIN user_expense ue ON e.expense_id = ue.expense_id
+    JOIN user_house   uh ON ue.email     = uh.email
+    WHERE uh.house_id = p_house_id
+    GROUP BY yr, mo
+    ORDER BY yr, mo;
+END$$
+
+
+DROP PROCEDURE IF EXISTS get_top_spenders$$
+CREATE PROCEDURE get_top_spenders(IN p_house_id INT)
+BEGIN
+    SELECT
+        ue.email,
+        u.name,
+        SUM(ue.user_share) AS total_spent
+    FROM user_expense ue
+    JOIN user_table  u  ON ue.email      = u.email
+    JOIN user_house  uh ON ue.email      = uh.email
+    WHERE uh.house_id = p_house_id
+    GROUP BY ue.email, u.name
+    ORDER BY total_spent DESC
+    LIMIT 5;
+END$$
+
+
+DROP PROCEDURE IF EXISTS get_resource_booking_frequency$$
+CREATE PROCEDURE get_resource_booking_frequency(IN p_house_id INT)
+BEGIN
+    SELECT
+        r.resource_id,
+        r.name AS resource_name,
+        CASE
+            WHEN rs.resource_id IS NOT NULL THEN 'space'
+            WHEN ra.resource_id IS NOT NULL THEN 'appliance'
+            ELSE 'base'
+        END AS resource_type,
+        COUNT(b.booking_id) AS booking_count
+    FROM resource_table r
+    LEFT JOIN resource_space    rs ON r.resource_id = rs.resource_id
+    LEFT JOIN resource_appliance ra ON r.resource_id = ra.resource_id
+    LEFT JOIN booking           b  ON r.resource_id = b.resource_id
+    WHERE r.house_id = p_house_id
+    GROUP BY r.resource_id, r.name, resource_type
+    ORDER BY booking_count DESC;
+END$$
+
+
+DROP PROCEDURE IF EXISTS get_expense_settlement_breakdown$$
+CREATE PROCEDURE get_expense_settlement_breakdown(IN p_house_id INT)
+BEGIN
+    SELECT
+        ue.payment_status,
+        COUNT(*) AS cnt
+    FROM user_expense ue
+    JOIN user_house uh ON ue.email = uh.email
+    WHERE uh.house_id = p_house_id
+    GROUP BY ue.payment_status;
+END$$
+
+
+DROP PROCEDURE IF EXISTS get_resource_utilization_by_type$$
+CREATE PROCEDURE get_resource_utilization_by_type(IN p_house_id INT)
+BEGIN
+    SELECT
+        CASE
+            WHEN rs.resource_id IS NOT NULL THEN 'space'
+            WHEN ra.resource_id IS NOT NULL THEN 'appliance'
+            ELSE 'base'
+        END AS resource_type,
+        SUM(TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time)) AS total_minutes_booked,
+        COUNT(b.booking_id) AS booking_count
+    FROM booking b
+    JOIN resource_table  r  ON b.resource_id = r.resource_id
+    LEFT JOIN resource_space    rs ON r.resource_id = rs.resource_id
+    LEFT JOIN resource_appliance ra ON r.resource_id = ra.resource_id
+    WHERE r.house_id = p_house_id
+    GROUP BY resource_type;
+END$$
+
+-- =============================================================
+-- ML PROCEDURES
+-- Stored procedures that feed data into the ML models in
+-- src/routers/ml.py
+--
+-- Procedure 1: get_monthly_expense_data
+--   Used by: Linear Regression expense forecaster
+--   Returns monthly expense totals for a house, ordered by time.
+--   The Python layer assigns a period_index (0,1,2,...) and
+--   trains sklearn LinearRegression on it.
+--
+-- Procedure 2: get_booking_matrix_data
+--   Used by: KNN collaborative-filter resource recommender
+--   Returns per-user per-resource booking counts for a house.
+--   The Python layer pivots this into a user-resource matrix and
+--   runs sklearn NearestNeighbors (cosine) to find similar users.
+-- =============================================================
+
+
+-- -------------------------------------------------------------
+-- get_monthly_expense_data
+-- Returns one row per (year, month) for a given house showing
+-- the total expense amount that month.
+-- Joins: expense -> user_expense -> user_house (3 tables)
+-- -------------------------------------------------------------
+DROP PROCEDURE IF EXISTS get_monthly_expense_data$$
+CREATE PROCEDURE get_monthly_expense_data(IN p_house_id INT)
+BEGIN
+    SELECT
+        YEAR(e.creation_date)  AS yr,
+        MONTH(e.creation_date) AS mo,
+        SUM(e.amount)          AS total
+    FROM expense e
+    JOIN user_expense ue ON e.expense_id = ue.expense_id
+    JOIN user_house   uh ON ue.email     = uh.email
+    WHERE uh.house_id = p_house_id
+    GROUP BY
+        YEAR(e.creation_date),
+        MONTH(e.creation_date)
+    ORDER BY yr ASC, mo ASC;
+END$$
+
+
+-- -------------------------------------------------------------
+-- get_booking_matrix_data
+-- Returns one row per (user, resource) pair showing how many
+-- times that user has booked that resource in the house.
+-- Joins: booking -> resource_table -> resource_space /
+--        resource_appliance (4 tables via LEFT JOINs)
+-- -------------------------------------------------------------
+DROP PROCEDURE IF EXISTS get_booking_matrix_data$$
+CREATE PROCEDURE get_booking_matrix_data(IN p_house_id INT)
+BEGIN
+    SELECT
+        b.user_email,
+        r.resource_id,
+        r.name AS resource_name,
+        CASE
+            WHEN rs.resource_id IS NOT NULL THEN 'space'
+            WHEN ra.resource_id IS NOT NULL THEN 'appliance'
+            ELSE 'base'
+        END AS resource_type,
+        COUNT(*) AS booking_count
+    FROM booking b
+    JOIN resource_table   r  ON b.resource_id  = r.resource_id
+    LEFT JOIN resource_space    rs ON r.resource_id = rs.resource_id
+    LEFT JOIN resource_appliance ra ON r.resource_id = ra.resource_id
+    WHERE r.house_id = p_house_id
+    GROUP BY
+        b.user_email,
+        r.resource_id,
+        r.name,
+        resource_type;
+END$$
+
+
+
+-- =============================================================
 -- TRIGGERS
 -- =============================================================
 
@@ -1252,12 +1422,12 @@ START TRANSACTION;
 
 -- user_table
 INSERT INTO user_table (email, name, password) VALUES
-('cristiano.ronaldo@gmail.com', 'Cristiano Ronaldo', '$2b$12$KIXQ1u6LzJ8wF8hZp1lY8e7QeQ1u6LzJ8wF8hZp1lY8e7QeQ1u6LzJ8'),
-('bhaichung.bhutia@gmail.com', 'Bhaichung Bhutia', '$2b$12$7uQ1u6LzJ8wF8hZp1lY8eKIXQeQ1u6LzJ8wF8hZp1lY8e7QeQ1u6'),
-('carlos.luiz@gmail.com', 'Carlos Luiz', '$2b$12$Zp1lY8e7QeQ1u6LzJ8wF8hKIXQ1u6LzJ8wF8hZp1lY8e7QeQ1'),
-('sunil.chhetri@gmail.com', 'Sunil Chhetri', '$2b$12$F8hZp1lY8e7QeQ1u6LzJ8wKIXQ1u6LzJ8wF8hZp1lY8e7QeQ'),
-('lionel.messi@gmail.com', 'Lionel Messi', '$2b$12$e7QeQ1u6LzJ8wF8hZp1lY8KIXQ1u6LzJ8wF8hZp1lY8e7QeQ'),
-('sergio.ramos@gmail.com', 'Sergio Ramos', '$2b$12$J8wF8hZp1lY8e7QeQ1u6LzKIXQ1u6LzJ8wF8hZp1lY8e7QeQ');
+('cristiano.ronaldo@gmail.com', 'Cristiano Ronaldo', '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8'),
+('bhaichung.bhutia@gmail.com', 'Bhaichung Bhutia', '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8'),
+('carlos.luiz@gmail.com', 'Carlos Luiz', '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8'),
+('sunil.chhetri@gmail.com', 'Sunil Chhetri', '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8'),
+('lionel.messi@gmail.com', 'Lionel Messi', '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8'),
+('sergio.ramos@gmail.com', 'Sergio Ramos', '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8');
 
 -- house
 INSERT INTO house (house_id, name, address) VALUES
@@ -1335,3 +1505,283 @@ INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
 
 COMMIT;
 
+-- =============================================================
+-- ADDITIONAL EXPENSE DML
+-- 3 months of historical expense data (January, February, March 2026)
+-- NOTE: The after_expense_insert trigger automatically inserts a
+-- user_expense row for created_by on every expense INSERT.
+-- Those rows are excluded here to avoid duplicate key errors.
+-- =============================================================
+
+START TRANSACTION;
+
+-- =============================================================
+-- JANUARY 2026
+-- =============================================================
+
+-- creator: cristiano.ronaldo@gmail.com → trigger inserts her row automatically
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(7, 1200.00, 'January Rent', '2026-01-01', NULL, 1, 'cristiano.ronaldo@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('bhaichung.bhutia@gmail.com', 7, 400.00, 'paid'),
+('carlos.luiz@gmail.com',      7, 400.00, 'paid');
+-- trigger inserted: cristiano.ronaldo@gmail.com, 7, 1200.00 → update her share
+UPDATE user_expense SET user_share = 400.00, payment_status = 'paid'
+WHERE email = 'cristiano.ronaldo@gmail.com' AND expense_id = 7;
+
+-- creator: bhaichung.bhutia@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(8, 143.20, 'Electric Bill', '2026-01-10', '/receipts/electric_jan.pdf', 1, 'bhaichung.bhutia@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('cristiano.ronaldo@gmail.com', 8, 71.60, 'paid'),
+('carlos.luiz@gmail.com',       8, 71.60, 'paid');
+UPDATE user_expense SET user_share = 71.60, payment_status = 'paid'
+WHERE email = 'bhaichung.bhutia@gmail.com' AND expense_id = 8;
+
+-- creator: sunil.chhetri@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(9, 75.00, 'Internet Bill', '2026-01-12', NULL, 1, 'sunil.chhetri@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('lionel.messi@gmail.com', 9, 37.50, 'paid');
+UPDATE user_expense SET user_share = 37.50, payment_status = 'paid'
+WHERE email = 'sunil.chhetri@gmail.com' AND expense_id = 9;
+
+-- creator: lionel.messi@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(10, 55.00, 'Groceries Run', '2026-01-15', '/receipts/groceries_jan.png', 0, 'lionel.messi@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('sunil.chhetri@gmail.com', 10, 27.50, 'paid');
+UPDATE user_expense SET user_share = 27.50, payment_status = 'paid'
+WHERE email = 'lionel.messi@gmail.com' AND expense_id = 10;
+
+-- creator: carlos.luiz@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(11, 90.00, 'Water Bill', '2026-01-18', NULL, 1, 'carlos.luiz@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('sergio.ramos@gmail.com', 11, 45.00, 'paid');
+UPDATE user_expense SET user_share = 45.00, payment_status = 'paid'
+WHERE email = 'carlos.luiz@gmail.com' AND expense_id = 11;
+
+-- creator: sergio.ramos@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(12, 35.00, 'Kitchen Supplies', '2026-01-20', '/receipts/kitchen_jan.png', 0, 'sergio.ramos@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('carlos.luiz@gmail.com', 12, 17.50, 'paid');
+UPDATE user_expense SET user_share = 17.50, payment_status = 'paid'
+WHERE email = 'sergio.ramos@gmail.com' AND expense_id = 12;
+
+-- creator: cristiano.ronaldo@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(13, 180.00, 'Heating Bill', '2026-01-22', NULL, 1, 'cristiano.ronaldo@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('bhaichung.bhutia@gmail.com', 13, 60.00, 'paid'),
+('carlos.luiz@gmail.com',      13, 60.00, 'paid');
+UPDATE user_expense SET user_share = 60.00, payment_status = 'paid'
+WHERE email = 'cristiano.ronaldo@gmail.com' AND expense_id = 13;
+
+-- creator: bhaichung.bhutia@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(14, 48.00, 'Trash Bags and Cleaner', '2026-01-25', NULL, 0, 'bhaichung.bhutia@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('cristiano.ronaldo@gmail.com', 14, 24.00, 'paid');
+UPDATE user_expense SET user_share = 24.00, payment_status = 'paid'
+WHERE email = 'bhaichung.bhutia@gmail.com' AND expense_id = 14;
+
+
+-- =============================================================
+-- FEBRUARY 2026
+-- =============================================================
+
+-- creator: cristiano.ronaldo@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(15, 1200.00, 'February Rent', '2026-02-01', NULL, 1, 'cristiano.ronaldo@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('bhaichung.bhutia@gmail.com', 15, 400.00, 'paid'),
+('carlos.luiz@gmail.com',      15, 400.00, 'paid');
+UPDATE user_expense SET user_share = 400.00, payment_status = 'paid'
+WHERE email = 'cristiano.ronaldo@gmail.com' AND expense_id = 15;
+
+-- creator: bhaichung.bhutia@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(16, 160.80, 'Electric Bill', '2026-02-10', '/receipts/electric_feb.pdf', 1, 'bhaichung.bhutia@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('cristiano.ronaldo@gmail.com', 16, 80.40, 'paid'),
+('carlos.luiz@gmail.com',       16, 80.40, 'paid');
+UPDATE user_expense SET user_share = 80.40, payment_status = 'paid'
+WHERE email = 'bhaichung.bhutia@gmail.com' AND expense_id = 16;
+
+-- creator: sunil.chhetri@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(17, 75.00, 'Internet Bill', '2026-02-12', NULL, 1, 'sunil.chhetri@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('lionel.messi@gmail.com', 17, 37.50, 'paid');
+UPDATE user_expense SET user_share = 37.50, payment_status = 'paid'
+WHERE email = 'sunil.chhetri@gmail.com' AND expense_id = 17;
+
+-- creator: cristiano.ronaldo@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(18, 210.00, 'Heating Bill', '2026-02-14', NULL, 1, 'cristiano.ronaldo@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('bhaichung.bhutia@gmail.com', 18, 70.00, 'paid'),
+('carlos.luiz@gmail.com',      18, 70.00, 'paid');
+UPDATE user_expense SET user_share = 70.00, payment_status = 'paid'
+WHERE email = 'cristiano.ronaldo@gmail.com' AND expense_id = 18;
+
+-- creator: carlos.luiz@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(19, 88.00, 'Water Bill', '2026-02-18', NULL, 1, 'carlos.luiz@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('sergio.ramos@gmail.com', 19, 44.00, 'paid');
+UPDATE user_expense SET user_share = 44.00, payment_status = 'paid'
+WHERE email = 'carlos.luiz@gmail.com' AND expense_id = 19;
+
+-- creator: lionel.messi@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(20, 62.50, 'Groceries Run', '2026-02-20', '/receipts/groceries_feb.png', 0, 'lionel.messi@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('sunil.chhetri@gmail.com', 20, 31.25, 'paid');
+UPDATE user_expense SET user_share = 31.25, payment_status = 'paid'
+WHERE email = 'lionel.messi@gmail.com' AND expense_id = 20;
+
+-- creator: sergio.ramos@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(21, 120.00, 'Plumber Visit', '2026-02-22', '/receipts/plumber_feb.pdf', 0, 'sergio.ramos@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('carlos.luiz@gmail.com', 21, 60.00, 'unpaid');
+UPDATE user_expense SET user_share = 60.00, payment_status = 'partial'
+WHERE email = 'sergio.ramos@gmail.com' AND expense_id = 21;
+
+-- creator: bhaichung.bhutia@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(22, 30.00, 'Cleaning Supplies', '2026-02-25', NULL, 0, 'bhaichung.bhutia@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('cristiano.ronaldo@gmail.com', 22, 15.00, 'paid');
+UPDATE user_expense SET user_share = 15.00, payment_status = 'paid'
+WHERE email = 'bhaichung.bhutia@gmail.com' AND expense_id = 22;
+
+
+-- =============================================================
+-- MARCH 2026
+-- =============================================================
+
+-- creator: cristiano.ronaldo@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(23, 1200.00, 'March Rent', '2026-03-01', NULL, 1, 'cristiano.ronaldo@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('bhaichung.bhutia@gmail.com', 23, 400.00, 'paid'),
+('carlos.luiz@gmail.com',      23, 400.00, 'paid');
+UPDATE user_expense SET user_share = 400.00, payment_status = 'paid'
+WHERE email = 'cristiano.ronaldo@gmail.com' AND expense_id = 23;
+
+-- creator: bhaichung.bhutia@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(24, 138.60, 'Electric Bill', '2026-03-10', '/receipts/electric_mar.pdf', 1, 'bhaichung.bhutia@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('cristiano.ronaldo@gmail.com', 24, 69.30, 'paid'),
+('carlos.luiz@gmail.com',       24, 69.30, 'paid');
+UPDATE user_expense SET user_share = 69.30, payment_status = 'paid'
+WHERE email = 'bhaichung.bhutia@gmail.com' AND expense_id = 24;
+
+-- creator: sunil.chhetri@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(25, 75.00, 'Internet Bill', '2026-03-12', NULL, 1, 'sunil.chhetri@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('lionel.messi@gmail.com', 25, 37.50, 'paid');
+UPDATE user_expense SET user_share = 37.50, payment_status = 'paid'
+WHERE email = 'sunil.chhetri@gmail.com' AND expense_id = 25;
+
+-- creator: cristiano.ronaldo@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(26, 165.00, 'Heating Bill', '2026-03-14', NULL, 1, 'cristiano.ronaldo@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('bhaichung.bhutia@gmail.com', 26, 55.00, 'paid'),
+('carlos.luiz@gmail.com',      26, 55.00, 'paid');
+UPDATE user_expense SET user_share = 55.00, payment_status = 'paid'
+WHERE email = 'cristiano.ronaldo@gmail.com' AND expense_id = 26;
+
+-- creator: carlos.luiz@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(27, 82.00, 'Water Bill', '2026-03-18', NULL, 1, 'carlos.luiz@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('sergio.ramos@gmail.com', 27, 41.00, 'paid');
+UPDATE user_expense SET user_share = 41.00, payment_status = 'paid'
+WHERE email = 'carlos.luiz@gmail.com' AND expense_id = 27;
+
+-- creator: lionel.messi@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(28, 95.00, 'Groceries Run', '2026-03-19', '/receipts/groceries_mar.png', 0, 'lionel.messi@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('sunil.chhetri@gmail.com', 28, 47.50, 'paid');
+UPDATE user_expense SET user_share = 47.50, payment_status = 'paid'
+WHERE email = 'lionel.messi@gmail.com' AND expense_id = 28;
+
+-- creator: carlos.luiz@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(29, 45.00, 'Kitchen Supplies', '2026-03-21', NULL, 0, 'carlos.luiz@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('cristiano.ronaldo@gmail.com', 29, 22.50, 'paid'),
+('bhaichung.bhutia@gmail.com',  29, 22.50, 'paid');
+UPDATE user_expense SET user_share = 22.50, payment_status = 'paid'
+WHERE email = 'carlos.luiz@gmail.com' AND expense_id = 29;
+
+-- creator: sunil.chhetri@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(30, 320.00, 'Washing Machine Repair', '2026-03-25', '/receipts/washer_repair_mar.pdf', 0, 'sunil.chhetri@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('lionel.messi@gmail.com', 30, 160.00, 'unpaid');
+UPDATE user_expense SET user_share = 160.00, payment_status = 'paid'
+WHERE email = 'sunil.chhetri@gmail.com' AND expense_id = 30;
+
+-- creator: sergio.ramos@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(31, 55.00, 'Cleaning Supplies', '2026-03-27', NULL, 0, 'sergio.ramos@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('carlos.luiz@gmail.com', 31, 27.50, 'unpaid');
+UPDATE user_expense SET user_share = 27.50, payment_status = 'paid'
+WHERE email = 'sergio.ramos@gmail.com' AND expense_id = 31;
+
+-- creator: bhaichung.bhutia@gmail.com
+INSERT INTO expense (expense_id, amount, description, due_date, receipts_attachment, is_recurring, created_by) VALUES
+(32, 70.00, 'Light Bulbs and Misc', '2026-03-29', NULL, 0, 'bhaichung.bhutia@gmail.com');
+INSERT INTO user_expense (email, expense_id, user_share, payment_status) VALUES
+('cristiano.ronaldo@gmail.com', 32, 35.00, 'paid');
+UPDATE user_expense SET user_share = 35.00, payment_status = 'paid'
+WHERE email = 'bhaichung.bhutia@gmail.com' AND expense_id = 32;
+
+COMMIT;
+
+START TRANSACTION;
+
+-- January expenses (expense_id 7–14)
+UPDATE expense SET creation_date = '2026-01-01' WHERE expense_id = 7;
+UPDATE expense SET creation_date = '2026-01-10' WHERE expense_id = 8;
+UPDATE expense SET creation_date = '2026-01-12' WHERE expense_id = 9;
+UPDATE expense SET creation_date = '2026-01-15' WHERE expense_id = 10;
+UPDATE expense SET creation_date = '2026-01-18' WHERE expense_id = 11;
+UPDATE expense SET creation_date = '2026-01-20' WHERE expense_id = 12;
+UPDATE expense SET creation_date = '2026-01-22' WHERE expense_id = 13;
+UPDATE expense SET creation_date = '2026-01-25' WHERE expense_id = 14;
+
+-- February expenses (expense_id 15–22)
+UPDATE expense SET creation_date = '2026-02-01' WHERE expense_id = 15;
+UPDATE expense SET creation_date = '2026-02-10' WHERE expense_id = 16;
+UPDATE expense SET creation_date = '2026-02-12' WHERE expense_id = 17;
+UPDATE expense SET creation_date = '2026-02-14' WHERE expense_id = 18;
+UPDATE expense SET creation_date = '2026-02-18' WHERE expense_id = 19;
+UPDATE expense SET creation_date = '2026-02-20' WHERE expense_id = 20;
+UPDATE expense SET creation_date = '2026-02-22' WHERE expense_id = 21;
+UPDATE expense SET creation_date = '2026-02-25' WHERE expense_id = 22;
+
+-- March expenses (expense_id 23–32)
+UPDATE expense SET creation_date = '2026-03-01' WHERE expense_id = 23;
+UPDATE expense SET creation_date = '2026-03-10' WHERE expense_id = 24;
+UPDATE expense SET creation_date = '2026-03-12' WHERE expense_id = 25;
+UPDATE expense SET creation_date = '2026-03-14' WHERE expense_id = 26;
+UPDATE expense SET creation_date = '2026-03-18' WHERE expense_id = 27;
+UPDATE expense SET creation_date = '2026-03-19' WHERE expense_id = 28;
+UPDATE expense SET creation_date = '2026-03-21' WHERE expense_id = 29;
+UPDATE expense SET creation_date = '2026-03-25' WHERE expense_id = 30;
+UPDATE expense SET creation_date = '2026-03-27' WHERE expense_id = 31;
+UPDATE expense SET creation_date = '2026-03-29' WHERE expense_id = 32;
+
+COMMIT;

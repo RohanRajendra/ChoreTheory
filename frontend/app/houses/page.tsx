@@ -46,6 +46,7 @@ export default function HouseListPage() {
         name: houseName,
         address,
         is_admin: true,
+        role: 'admin',
       };
       const updated = [...houses, newHouse];
       setHouses(updated);
